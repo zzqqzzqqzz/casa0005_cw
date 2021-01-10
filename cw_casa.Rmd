@@ -1,0 +1,881 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+plot(cars)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r install packages}
+install.packages("ggpubr")
+library(ggpubr)
+library(here)
+library(sf)
+library(tidyverse)
+library(maptools)
+library(tmap)
+library(tmaptools)
+library(dplyr)
+library(stringr)
+library(readr)
+
+library(nngeo)
+library(spdep)
+
+here()
+
+```
+
+```{r input data}
+london_bo<- st_read(here("raw_data", "London_Boroughs.gpkg"))%>%
+  select(c(`name`, `gss_code`, `geom`))
+qtm(london_bo)
+
+crime<- read_csv(here("raw_data", "crime", "MPS Borough Level Crime (most recent 24 months).csv"))
+crime_2019<- crime%>%
+  select(c("MajorText", "LookUp_BoroughName", "201901", "201902", "201903", "201904", "201905", "201906", "201907", "201908", "201909", "201910", "201911", "201912"))%>%
+  group_by(LookUp_BoroughName,MajorText)%>%
+  summarise_each(funs(sum))%>%
+  merge(., london_bo, by.x = "LookUp_BoroughName", by.y = "name")%>%
+  select(c("LookUp_BoroughName","gss_code","MajorText", "201901", "201902", "201903", "201904", "201905", "201906", "201907", "201908", "201909", "201910", "201911", "201912","geom"))
+#rename
+names(crime_2019)<- c("Borough_Name","Borough_Code","Major_Type", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec","geom")
+
+crime_2019_average<- crime_2019%>%
+  select(c("Borough_Name","Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))%>%
+  group_by(Borough_Name)%>%
+  summarise_each(funs(mean))%>%
+  merge(., london_bo, by.x = "Borough_Name", by.y = "name")%>%
+  select(c("Borough_Name","gss_code", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec","geom"))%>%
+  st_as_sf(.)
+
+crime_2019_average$Winter<- (crime_2019_average$Jan+crime_2019_average$Dec+crime_2019_average$Feb)/3
+crime_2019_average$Spring<- (crime_2019_average$Mar+crime_2019_average$Apr+crime_2019_average$May)/3
+crime_2019_average$Summer<- (crime_2019_average$Jun+crime_2019_average$Jul+crime_2019_average$Aug)/3
+crime_2019_average$Autumn<- (crime_2019_average$Sep+crime_2019_average$Oct+crime_2019_average$Nov)/3
+
+crime_2019_average<- crime_2019_average%>%
+  select(c("gss_code","Borough_Name","Spring","Summer","Autumn","Winter","geom"))
+
+
+crime_2020<- crime%>%
+  select(c("MajorText", "LookUp_BoroughName", "202001", "202002", "202003", "202004", "202005", "202006", "202007", "202008", "202009", "202010", "202011"))%>%
+  group_by(LookUp_BoroughName,MajorText)%>%
+  summarise_each(funs(sum))%>%
+  merge(., london_bo, by.x = "LookUp_BoroughName", by.y = "name")%>%
+  select(c("LookUp_BoroughName","gss_code","MajorText", "202001", "202002", "202003", "202004", "202005", "202006", "202007", "202008", "202009", "202010", "202011","geom"))
+
+names(crime_2020)<- c("Borough_Name","Borough_Code","Major_Type","Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov","geom")
+
+crime_2020_average<- crime_2020%>%
+  select(c("Borough_Name","Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"))%>%
+  group_by(Borough_Name)%>%
+  summarise_each(funs(mean))%>%
+  merge(., london_bo, by.x = "Borough_Name", by.y = "name")%>%
+  select(c("Borough_Name","gss_code", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov","geom"))%>%
+  st_as_sf(.)
+
+crime_2020_average$Winter<- (crime_2020_average$Jan+crime_2020_average$Feb)/2
+crime_2020_average$Spring<- (crime_2020_average$Mar+crime_2020_average$Apr+crime_2020_average$May)/3
+crime_2020_average$Summer<- (crime_2020_average$Jun+crime_2020_average$Jul+crime_2020_average$Aug)/3
+crime_2020_average$Autumn<- (crime_2020_average$Sep+crime_2020_average$Oct+crime_2020_average$Nov)/3
+
+class(crime_2020_average)
+head(crime_2020_average)
+
+crime_2020_average<- crime_2019_average%>%
+  select(c("gss_code","Borough_Name","Spring","Summer","Autumn","Winter","geom"))
+
+class(crime_2020_average)
+```
+
+```{r plotting}
+
+crime_spring_2019<- tm_shape(crime_2019_average)+
+  tm_fill("Spring",title = "Case Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_borders()+
+  tm_layout(main.title = "Spring",
+            legend.show = FALSE, 
+            legend.outside.position = c('right','bottom'))
+
+crime_summer_2019<- tm_shape(crime_2019_average)+
+  tm_fill("Summer",title = "Case Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_borders()+
+  tm_layout(main.title = "Summer",
+            legend.show = FALSE, 
+            legend.outside.position = c('right','bottom'))
+
+crime_autumn_2019<- tm_shape(crime_2019_average)+
+  tm_fill("Autumn",title = "Case Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_borders()+
+  tm_layout(main.title = "Autumn",
+            legend.show = FALSE, 
+            legend.outside.position = c('right','bottom'))
+
+crime_winter_2019<- tm_shape(crime_2019_average)+
+  tm_fill("Winter",title = "Case \n Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_compass()+
+  tm_borders()+
+  tm_layout(main.title = "Winter in 2019",
+            legend.outside = TRUE, 
+            legend.outside.position = c('right','bottom'),
+            legend.title.size = 2)
+
+crime_spring_2020<- tm_shape(crime_2020_average)+
+  tm_fill("Spring",title = "Case Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_borders()+
+  tm_layout(main.title = "Spring",
+            legend.show = FALSE, 
+            legend.outside.position = c('right','bottom'))
+
+crime_summer_2020<- tm_shape(crime_2020_average)+
+  tm_fill("Summer",title = "Case Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_borders()+
+  tm_layout(main.title = "Summer",
+            legend.show = FALSE, 
+            legend.outside.position = c('right','bottom'))
+
+crime_autumn_2020<- tm_shape(crime_2020_average)+
+  tm_fill("Autumn",title = "Case Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_borders()+
+  tm_layout(main.title = "Autumn",
+            legend.show = FALSE, 
+            legend.outside.position = c('right','bottom'))
+
+crime_winter_2020<- tm_shape(crime_2020_average)+
+  tm_fill("Winter",title = "Case \n Number", breaks = c(0,100,200,300,400,500,600,700))+
+  tm_compass()+
+  tm_borders()+
+  tm_layout(main.title = "Winter in 2020",
+            legend.outside = TRUE, 
+            legend.outside.position = c('right','bottom'),
+            legend.title.size = 2)
+
+tmap_arrange(crime_spring_2019, crime_summer_2019, crime_autumn_2019, crime_winter_2019, crime_spring_2020, crime_summer_2020, crime_autumn_2020, crime_winter_2020, nrow = 2, ncol = 4, widths = c(0.2,0.2,0.2,0.4))
+
+head(crime_2019_average)
+head(crime_2020_average)
+
+wilcox.test(crime_2020_average$Winter, crime_2019_average$Winter,paired = TRUE)
+
+crime_2019<- st_as_sf(crime_2019)
+crime_2020<- st_as_sf(crime_2020)
+class(crime_2020)
+
+# jan_2020<- tm_shape(crime_2020)+
+#   tm_fill("Jan",title = "Case Number", breaks = c(0,500,1000,1500))+
+#   tm_borders()+
+#   tm_layout(main.title = "Jan 2020",
+#             legend.show = TRUE, 
+#             legend.outside.position = c('right','bottom'))
+# nov_2020<- tm_shape(crime_2020)+
+#   tm_fill("Nov",title = "Case Number", breaks = c(0,500,1000,1500))+
+#   tm_borders()+
+#   tm_layout(main.title = "Nov 2020",
+#             legend.show = TRUE, 
+#             legend.outside.position = c('right','bottom'))
+# 
+# tmap_arrange(jan_2020,nov_2020)
+```
+
+```{r by month}
+head(crime)
+head(crime_2020_average)
+head(crime_2019)
+
+ggplot(crime_2019_average,aes(x=Spring))+
+  geom_histogram()
+ggplot(crime_2019_average,aes(x=Summer))+
+  geom_histogram()
+ggplot(crime_2019_average,aes(x=Autumn))+
+  geom_histogram()
+ggplot(crime_2019_average,aes(x=Winter))+
+  geom_histogram()
+
+crime_2019$mean_2019<- rowMeans(crime_2019[,4:15], na.rm = TRUE)
+crime_2020$mean_2020<- rowMeans(crime_2020[,4:14], na.rm = TRUE)
+
+crime_data<- merge(crime_2019, crime_2020, by.x = "Borough_Code", by.y = "Borough_Code")%>%
+  select(c("Borough_Code","Borough_Name.x","Major_Type.x","Jan.x","Feb.x","Mar.x","Apr.x","May.x","Jun.x" ,"Jul.x","Aug.x","Sep.x", "Oct.x","Nov.x","Dec","Jan.y","Feb.y","Mar.y","Apr.y", "May.y","Jun.y","Jul.y","Aug.y","Sep.y","Oct.y","Nov.y","mean_2019","mean_2020" ))
+
+names(crime_data)<- c("Borough_Code","Borough_Name","Major_Type","Jan_19","Feb_19","Mar_19","Apr_19","May_19","Jun_19" ,"Jul_19","Aug_19","Sep_19", "Oct_19","Nov_19","Dec_19","Jan_20","Feb_20","Mar_20","Apr_20", "May_20","Jun_20","Jul_20","Aug_20","Sep_20","Oct_20","Nov_20","mean_2019","mean_2020")
+
+head(crime_data)
+
+crime_data_by_type<- crime_data%>%
+  select(c("Major_Type","Jan_19","Feb_19","Mar_19","Apr_19","May_19","Jun_19" ,"Jul_19","Aug_19","Sep_19", "Oct_19","Nov_19","Dec_19","Jan_20","Feb_20","Mar_20","Apr_20", "May_20","Jun_20","Jul_20","Aug_20","Sep_20","Oct_20","Nov_20","mean_2019","mean_2020"))%>%
+  group_by(Major_Type)%>%
+  summarise_each(funs(sum))
+
+crime_data_by_type<-aggregate(as.matrix(crime_data[,3]), as.list(crime_data[,4:26]), FUN = sum)
+
+head(crime_2019)
+
+wilcox.test(crime_2019$mean_2019, crime_2020$mean_2020, paired = TRUE)
+# conduct t test 
+
+crime_data_by_type_2019<- crime_2019%>%
+  select(c("Major_Type","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov","Dec"))
+
+crime_data_by_type_2020<- crime_2020%>%
+  select(c("Major_Type","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov"))
+
+crime_data_by_type_2019$Winter<- (crime_data_by_type_2019$Jan+crime_data_by_type_2019$Dec+crime_data_by_type_2019$Feb)/3
+crime_data_by_type_2019$Spring<- (crime_data_by_type_2019$Mar+crime_data_by_type_2019$Apr+crime_data_by_type_2019$May)/3
+crime_data_by_type_2019$Summer<- (crime_data_by_type_2019$Jun+crime_data_by_type_2019$Jul+crime_data_by_type_2019$Aug)/3
+crime_data_by_type_2019$Autumn<- (crime_data_by_type_2019$Sep+crime_data_by_type_2019$Oct+crime_data_by_type_2019$Nov)/3
+crime_data_by_type_2020$Winter<- (crime_data_by_type_2020$Jan+crime_data_by_type_2020$Feb)/2
+crime_data_by_type_2020$Spring<- (crime_data_by_type_2020$Mar+crime_data_by_type_2020$Apr+crime_data_by_type_2020$May)/3
+crime_data_by_type_2020$Summer<- (crime_data_by_type_2020$Jun+crime_data_by_type_2020$Jul+crime_data_by_type_2020$Aug)/3
+crime_data_by_type_2020$Autumn<- (crime_data_by_type_2020$Sep+crime_data_by_type_2020$Oct+crime_data_by_type_2020$Nov)/3
+
+crime_data_by_type_2019<-crime_data_by_type_2019%>%
+  select(c("Major_Type","Winter","Spring","Summer","Autumn"))%>%
+  # group_by(Major_Type)%>%
+  # summarise_each(funs(mean))%>%
+  pivot_longer(., !Major_Type, names_to = "season", values_to = "count")
+crime_data_by_type_2020<- crime_data_by_type_2020%>%
+  select(c("Major_Type","Winter","Spring","Summer","Autumn"))%>%
+  st_drop_geometry(.)%>%
+  # group_by(Major_Type)%>%
+  # summarise_each(funs(mean))%>%
+  pivot_longer(., !Major_Type, names_to = "season", values_to = "count")
+
+names(crime_data_by_type_2020)
+
+level<- c("Winter","Spring","Summer","Autumn")
+ggplot(crime_data_by_type_2019,aes(x=factor(season, levels = level), y=count, group=Major_Type))+
+  geom_col(aes(x=factor(season, levels = level), y=count),fill = "black",colour="black",show.legend = FALSE)+
+  scale_x_discrete(guide = guide_axis(angle = 90))+
+  scale_color_brewer(palette="Set3")+
+  labs(title = "Crime Count of Each Season in 2019")+
+  facet_wrap(~Major_Type)+
+  theme(axis.title.x = element_blank(),
+        strip.text.x = element_text(size = 6),
+        axis.text.x = element_text(size=10),
+        axis.ticks = element_blank())
+
+ggplot(crime_data_by_type_2020,aes(x=factor(season, levels = level), y=count, group=Major_Type))+
+  geom_col(aes(x=factor(season, levels = level), y=count),fill = "black",colour="black",show.legend = FALSE)+
+  scale_x_discrete(guide = guide_axis(angle = 90))+
+  scale_color_brewer(palette="Set3")+
+  labs(title = "Crime Count of Each Season in 2020")+
+  facet_wrap(~Major_Type)+
+  theme(axis.title.x = element_blank(),
+        strip.text.x = element_text(size = 6),
+        axis.text.x = element_text(size=10),
+        axis.ticks = element_blank())
+```
+
+```{r by type}
+head(crime_2019)
+unique(crime_2019$Major_Type)
+
+crime_2019_theft<- crime_2019%>%
+  filter(`Major_Type`=="Theft")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov","Dec"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2019_Vehicle_Offences<- crime_2019%>%
+  filter(`Major_Type`=="Vehicle Offences")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov","Dec"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2019_Violence_Against_Person<- crime_2019%>%
+  filter(`Major_Type`=="Violence Against the Person")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov","Dec"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2020_theft<- crime_2020%>%
+  filter(`Major_Type`=="Theft")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2020_Vehicle_Offences<- crime_2020%>%
+  filter(`Major_Type`=="Vehicle Offences")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+
+crime_2019_Public_Order_Offences<- crime_2019%>%
+  st_drop_geometry(.)%>%
+  filter(`Major_Type`=="Public Order Offences")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov","Dec"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+
+wilcox.test(crime_2019_theft$count, crime_2020_theft$count)
+wilcox.test(crime_2019_Vehicle_Offences$count, crime_2020_Vehicle_Offences$count)
+wilcox.test(crime_2019_Violence_Against_Person$count, crime_2020_Violence_Against_Person$count)
+
+crime_2019_theft_plot<- ggplot(crime_2019_theft,aes(x=count))+
+  ggtitle("Theft 2019")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2019_theft_plot
+
+crime_2019_Vehicle_Offences_plot<- ggplot(crime_2019_Vehicle_Offences,aes(x=count))+
+  ggtitle("Vehicle Offences 2019")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2019_Vehicle_Offences_plot
+
+crime_2019_Violence_Against_Person_plot<- ggplot(crime_2019_Violence_Against_Person,aes(x=count))+
+  ggtitle("Violence Against Person 2019")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2019_Violence_Against_Person_plot
+
+crime_2020_theft_plot<- ggplot(crime_2020_theft,aes(x=count))+
+  ggtitle("Theft 2020")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2020_theft_plot
+
+crime_2020_Vehicle_Offences_plot<- ggplot(crime_2020_Vehicle_Offences,aes(x=count))+
+  ggtitle("Vehicle Offences 2020")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2020_Vehicle_Offences_plot
+
+crime_2020_Violence_Against_Person_plot<- ggplot(crime_2020_Violence_Against_Person,aes(x=count))+
+  ggtitle("Violence Against Person 2020")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2020_Violence_Against_Person_plot
+
+ggarrange(crime_2019_theft_plot,crime_2020_theft_plot,crime_2019_Vehicle_Offences_plot,crime_2020_Vehicle_Offences_plot,crime_2019_Violence_Against_Person_plot,crime_2020_Violence_Against_Person_plot,ncol = 2,nrow = 3)
+
+crime_2019_Burglary<- crime_2019%>%
+  filter(`Major_Type`=="Burglary")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov","Dec"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2020_Burglary<- crime_2020%>%
+  filter(`Major_Type`=="Burglary")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2019_Burglary_plot<- ggplot(crime_2019_Burglary,aes(x=count))+
+  ggtitle("Burglary 2019")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2019_Burglary_plot
+
+crime_2020_Burglary_plot<- ggplot(crime_2020_Burglary,aes(x=count))+
+  ggtitle("Burglary 2020")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2020_Burglary_plot
+
+crime_2019_Robbery<- crime_2019%>%
+  filter(`Major_Type`=="Robbery")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov","Dec"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2020_Robbery<- crime_2020%>%
+  filter(`Major_Type`=="Robbery")%>%
+  select(c("Borough_Code","Jan","Feb","Mar","Apr","May","Jun" ,"Jul","Aug","Sep", "Oct","Nov"))%>%
+  pivot_longer(., !Borough_Code, names_to = "month", values_to = "count")
+
+crime_2019_Robbery_plot<- ggplot(crime_2019_Robbery,aes(x=count))+
+  ggtitle("Robbery 2019")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2019_Robbery_plot
+
+crime_2020_Robbery_plot<- ggplot(crime_2020_Robbery,aes(x=count))+
+  ggtitle("Robbery 2020")+
+  geom_histogram(aes(y=..density..),colour="black", fill="white")+
+  geom_density(alpha=.2, fill="red")+
+  theme(axis.text.y = element_blank())
+crime_2020_Robbery_plot
+
+ggarrange(crime_2019_Violence_Against_Person_plot,crime_2020_Violence_Against_Person_plot,crime_2019_theft_plot,crime_2020_theft_plot,ncol = 2,nrow = 2)
+
+ggarrange(crime_2019_Burglary_plot,crime_2020_Burglary_plot,crime_2019_Robbery_plot,crime_2020_Robbery_plot,crime_2019_Vehicle_Offences_plot,crime_2020_Vehicle_Offences_plot,crime_2019_theft_plot,crime_2020_theft_plot,ncol = 2,nrow = 4)
+
+wilcox.test(crime_2019_Burglary$count, crime_2020_Burglary$count)
+wilcox.test(crime_2019_Robbery$count, crime_2020_Robbery$count)
+
+```
+
+```{r by type map}
+names(crime_2019_theft)
+crime_2019_theft_avg<- crime_2019_theft%>%
+  group_by(Borough_Code)%>%
+  summarise(across(where(is.numeric), sum))%>%
+  merge(., london_bo, by.x = "Borough_Code",by.y = "gss_code")%>%
+  st_as_sf(.)
+
+tm_shape(crime_2019_theft_avg)+
+  tm_fill("count",title = "Case \n Number")+
+  tm_compass()+
+  tm_borders()+
+  tm_layout(main.title = "Theft in 2019",
+            legend.outside = TRUE, 
+            legend.outside.position = c('right','bottom'),
+            legend.title.size = 2)
+```
+
+```{r global morans i}
+
+library(nngeo)
+library(spdep)
+
+crime_2020_average_sp<- as_Spatial(crime_2020_average, IDs = crime_2020_average$gss_code)
+class(crime_2020_average_sp)
+crime_2020_average_nb<- poly2nb(crime_2020_average_sp, row.names = crime_2020_average$gss_code)
+class(crime_2020_average_nb)
+
+str(crime_2020_average_nb, list.len = 10)
+
+#create a matrix
+crime_2020_average_matB<- nb2mat(crime_2020_average_nb, style = 'B')
+sum(crime_2020_average_matB[1,])
+#sum of column1. false=>0, true=>1
+#indicates that 5 values of true.
+
+crime_2020_average_matW<- nb2mat(crime_2020_average_nb,style = "W")
+sum(crime_2020_average_matW[1,])
+#w=> allowing weighting. the sum would be 1.
+
+crime_2020_average_listw<- nb2listw(crime_2020_average_nb,style='B')
+class(crime_2020_average_listw)
+#so this is nbs and weights so far.
+
+#create a quick Moran's I:
+moran(crime_2020_average_sp$Winter,
+      crime_2020_average_listw,
+      n=length(crime_2020_average_listw$neighbours),
+      S0=Szero(crime_2020_average_listw))
+mc_model<- moran.mc(crime_2020_average_sp$Winter, crime_2020_average_listw, nsim = 999)
+mc_model
+
+class(crime_2019_average)
+
+#convert it to sp
+crime_2019_average_sp<- as_Spatial(crime_2019_average, IDs = crime_2019_average$gss_code)
+class(crime_2019_average_sp)
+crime_2019_average_nb<- poly2nb(crime_2019_average_sp, row.names = crime_2019_average$gss_code)
+class(crime_2019_average_nb)
+
+# str(crime_2019_average_nb, list.len = 10)
+
+#create a matrix
+crime_2019_average_matB<- nb2mat(crime_2019_average_nb, style = 'B')
+sum(crime_2019_average_matB[1,])
+#sum of column1. false=>0, true=>1
+#indicates that 5 values of true.
+
+crime_2019_average_matW<- nb2mat(crime_2019_average_nb,style = "W")
+sum(crime_2019_average_matW[1,])
+#w=> allowing weighting. the sum would be 1.
+
+crime_2019_average_listw<- nb2listw(crime_2019_average_nb,style='B')
+class(crime_2019_average_listw)
+#so this is nbs and weights so far.
+
+#create a quick Moran's I:
+moran(crime_2019_average_sp$Summer,
+      crime_2019_average_listw,
+      n=length(crime_2019_average_listw$neighbours),
+      S0=Szero(crime_2019_average_listw))
+mc_model<- moran.mc(crime_2019_average_sp$Summer, crime_2019_average_listw, nsim = 999)
+mc_model
+```
+
+```{r local morans i}
+
+#local Moran's I:
+#make the nb first:
+crime_2019_average_nb<- poly2nb(crime_2019_average_sp, row.names = crime_2019_average_sp$gss_code)
+crime_2020_average_nb<- poly2nb(crime_2020_average_sp, row.names = crime_2020_average_sp$gss_code)
+#create the list weights object
+#but notice that need to standardisation:
+nb_weights_2019<- nb2listw(crime_2019_average_nb, style = 'W')
+nb_weights_2020<- nb2listw(crime_2020_average_nb, style = 'W')
+
+#use the local moran() function:
+crime_2019_average_local_moran<- localmoran(crime_2019_average_sp$Spring, nb_weights_2019)
+crime_2019_average_local_moran<- localmoran(crime_2019_average_sp$Summer, nb_weights_2019)
+crime_2019_average_local_moran<- localmoran(crime_2019_average_sp$Autumn, nb_weights_2019)
+crime_2019_average_local_moran<- localmoran(crime_2019_average_sp$Winter, nb_weights_2019)
+
+crime_2019_average_local_moran<- localmoran(crime_2020_average_sp$Spring, nb_weights_2020)
+crime_2020_average_local_moran<- localmoran(crime_2020_average_sp$Autumn, nb_weights_2020)
+crime_2020_average_local_moran<- localmoran(crime_2020_average_sp$Summer, nb_weights_2020)
+crime_2019_average_local_moran<- localmoran(crime_2020_average_sp$Winter, nb_weights_2020)
+#re-scale the variable:
+crime_2019_average_sp$scale_spring<- scale(crime_2019_average_sp$Spring)
+crime_2019_average_sp$scale_summer<- scale(crime_2019_average_sp$Summer)
+crime_2019_average_sp$scale_autumn<- scale(crime_2019_average_sp$Autumn)
+crime_2019_average_sp$scale_winter<- scale(crime_2019_average_sp$Winter)
+
+crime_2020_average_sp$scale_spring<- scale(crime_2020_average_sp$Spring)
+crime_2020_average_sp$scale_autumn<- scale(crime_2020_average_sp$Autumn)
+crime_2020_average_sp$scale_summer<- scale(crime_2020_average_sp$Summer)
+crime_2020_average_sp$scale_winter<- scale(crime_2020_average_sp$Winter)
+#ceate a new column that carries information about the nbs
+#called spatial lag function:
+crime_2019_average_sp$scale_spring_lag<- lag.listw(nb_weights_2019,crime_2019_average_sp$scale_spring)
+crime_2019_average_sp$scale_summer_lag<- lag.listw(nb_weights_2019,crime_2019_average_sp$scale_summer)
+crime_2019_average_sp$scale_autumn_lag<- lag.listw(nb_weights_2019,crime_2019_average_sp$scale_autumn)
+crime_2019_average_sp$scale_winter_lag<- lag.listw(nb_weights_2019,crime_2019_average_sp$scale_winter)
+names(crime_2019_average_sp)
+crime_2020_average_sp$scale_spring_lag<- lag.listw(nb_weights_2020,crime_2020_average_sp$scale_spring)
+crime_2020_average_sp$scale_autumn_lag<- lag.listw(nb_weights_2020,crime_2020_average_sp$scale_autumn)
+crime_2020_average_sp$scale_summer_lag<- lag.listw(nb_weights_2020,crime_2020_average_sp$scale_summer)
+crime_2020_average_sp$scale_winter_lag<- lag.listw(nb_weights_2020,crime_2020_average_sp$scale_winter)
+#convert to sf:
+crime_moran_value_2019<- st_as_sf(crime_2019_average_sp)
+crime_moran_value_2020<- st_as_sf(crime_2020_average_sp)
+
+#significance for the p value:
+sig_level<- 0.1
+
+crime_2019_average_sp$sig_autumn_2019 <- ifelse(crime_2019_average_sp$scale_autumn > 0 &  crime_2019_average_sp$scale_autumn_lag > 0 & crime_2019_average_local_moran[,5] <= sig_level, "high-high",
+                                            ifelse(crime_2019_average_sp$scale_autumn <= 0 & crime_2019_average_sp$scale_autumn_lag <= 0 & crime_2019_average_local_moran[,5] <= sig_level,  "low-low",
+                                                   ifelse(crime_2019_average_sp$scale_autumn > 0 & crime_2019_average_sp$scale_autumn_lag <= 0 & crime_2019_average_local_moran[,5] <= sig_level,  "high-low",
+                                                          ifelse(crime_2019_average_sp$scale_autumn <= 0 & crime_2019_average_sp$scale_autumn_lag > 0 &  crime_2019_average_local_moran[,5] <= sig_level,  "low-high",
+                                                                 ifelse(crime_2019_average_local_moran[,5] > sig_level,  "not-significant", "not-significant")))))
+names(crime_2019_average_sp)
+
+crime_2020_average_sp$sig_winter_2020 <- ifelse(crime_2020_average_sp$scale_winter > 0 &  crime_2020_average_sp$scale_winter_lag > 0 & crime_2020_average_local_moran[,5] <= sig_level, "high-high",
+                                            ifelse(crime_2020_average_sp$scale_winter <= 0 & crime_2020_average_sp$scale_winter_lag <= 0 & crime_2020_average_local_moran[,5] <= sig_level,  "low-low",
+                                                   ifelse(crime_2020_average_sp$scale_winter > 0 & crime_2020_average_sp$scale_winter_lag <= 0 & crime_2020_average_local_moran[,5] <= sig_level,  "high-low",
+                                                          ifelse(crime_2020_average_sp$scale_winter <= 0 & crime_2020_average_sp$scale_winter_lag > 0 &  crime_2020_average_local_moran[,5] <= sig_level,  "low-high",
+                                                                 ifelse(crime_2020_average_local_moran[,5] > sig_level,  "not-significant", "not-significant")))))
+
+Hotspot_in_Spring_2019<- tm_shape(crime_2019_average_sp)+
+  tm_fill(col = "sig_spring_2019",title = " ",legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Spring 2019",legend.outside = TRUE)
+Hotspot_in_Summer_2019<- tm_shape(crime_2019_average_sp)+
+  tm_fill(col = "sig_summer_2019",title = " ",legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Summer 2019",legend.outside = TRUE)
+Hotspot_in_Autumn_2019<- tm_shape(crime_2019_average_sp)+
+  tm_fill(col = "sig_autumn_2019",title = " ",legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Autumn 2019",legend.outside = TRUE)
+Hotspot_in_Winter_2019<- tm_shape(crime_2019_average_sp)+
+  tm_fill(col = "sig_winter_2019",title = " ")+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Winter 2019",legend.outside = TRUE)
+Hotspot_in_Spring_2020<- tm_shape(crime_2019_average_sp)+
+  tm_fill(col = "sig_spring_2020",title = " ",legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Spring 2019",legend.outside = TRUE)
+Hotspot_in_Summer_2020<- tm_shape(crime_2020_average_sp) +
+  tm_fill(col = "sig_summer_2020",title = " ",legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Summer 2020",legend.outside = TRUE)
+Hotspot_in_Autumn_2020<- tm_shape(crime_2020_average_sp) +
+  tm_fill(col = "sig_autumn_2020",title = " ",legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Autumn 2020",legend.outside = TRUE)
+Hotspot_in_Winter_2020<- tm_shape(crime_2019_average_sp)+
+  tm_fill(col = "sig_winter_2020",title = " ")+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Hotspot in Winter 2020",legend.outside = TRUE)
+
+tmap_arrange(Hotspot_in_Summer_2019,
+             Hotspot_in_Autumn_2019,
+             Hotspot_in_Summer_2020,
+             Hotspot_in_Autumn_2020, ncol = 2)
+```
+
+```{r by crime type 2019}
+# view(crime_2019_Burglary)
+
+crime_2019_Robbery_season<- crime_2019_Robbery%>%
+  pivot_wider(., names_from = "month",values_from = count)%>%
+  merge(., london_bo, by.x = "Borough_Code", by.y = "gss_code")%>%
+  st_as_sf(.)
+
+crime_2019_Robbery_season$Winter<- (crime_2019_Robbery_season$Jan+crime_2019_Robbery_season$Dec+crime_2019_Robbery_season$Feb)/3
+crime_2019_Robbery_season$Spring<- (crime_2019_Robbery_season$Mar+crime_2019_Robbery_season$Apr+crime_2019_Robbery_season$May)/3
+crime_2019_Robbery_season$Summer<- (crime_2019_Robbery_season$Jun+crime_2019_Robbery_season$Jul+crime_2019_Robbery_season$Aug)/3
+crime_2019_Robbery_season$Autumn<- (crime_2019_Robbery_season$Sep+crime_2019_Robbery_season$Oct+crime_2019_Robbery_season$Nov)/3
+
+class(crime_2019_Robbery_season)
+
+crime_2019_Robbery_season_sp<- as_Spatial(crime_2019_Robbery_season, IDs = crime_2019_Robbery_season$gss_code)
+class(crime_2019_Robbery_season_sp)
+crime_2019_Robbery_season_nb<- poly2nb(crime_2019_Robbery_season_sp, row.names = crime_2019_Robbery_season$gss_code)
+class(crime_2019_Robbery_season_nb)
+
+str(crime_2019_Robbery_season_nb, list.len = 10)
+
+#create a matrix
+crime_2019_Robbery_season_matB<- nb2mat(crime_2019_Robbery_season_nb, style = 'B')
+sum(crime_2019_Robbery_season_matB[1,])
+#sum of column1. false=>0, true=>1
+#indicates that 5 values of true.
+
+crime_2019_Robbery_season_matW<- nb2mat(crime_2019_Robbery_season_nb,style = "W")
+sum(crime_2019_Robbery_season_matW[1,])
+#w=> allowing weighting. the sum would be 1.
+
+crime_2019_Robbery_season_listw<- nb2listw(crime_2019_Robbery_season_nb,style='B')
+class(crime_2019_Robbery_season_listw)
+#so this is nbs and weights so far.
+
+#create a quick Moran's I:
+moran(crime_2019_Robbery_season_sp$Autumn,
+      crime_2019_Robbery_season_listw,
+      n=length(crime_2019_Robbery_season_listw$neighbours),
+      S0=Szero(crime_2019_Robbery_season_listw))
+mc_model<- moran.mc(crime_2019_Robbery_season_sp$Autumn, crime_2019_Robbery_season_listw, nsim = 999)
+mc_model
+
+```
+
+```{r by crime type 2020}
+crime_2020_Robbery_season<- crime_2020_Robbery%>%
+  pivot_wider(., names_from = "month",values_from = count)%>%
+  merge(., london_bo, by.x = "Borough_Code", by.y = "gss_code")%>%
+  st_as_sf(.)
+
+crime_2020_Robbery_season$Winter<- (crime_2020_Robbery_season$Jan+crime_2020_Robbery_season$Feb)/2
+crime_2020_Robbery_season$Spring<- (crime_2020_Robbery_season$Mar+crime_2020_Robbery_season$Apr+crime_2020_Robbery_season$May)/3
+crime_2020_Robbery_season$Summer<- (crime_2020_Robbery_season$Jun+crime_2020_Robbery_season$Jul+crime_2020_Robbery_season$Aug)/3
+crime_2020_Robbery_season$Autumn<- (crime_2020_Robbery_season$Sep+crime_2020_Robbery_season$Oct+crime_2020_Robbery_season$Nov)/3
+
+class(crime_2020_Robbery_season)
+
+crime_2020_Robbery_season_sp<- as_Spatial(crime_2020_Robbery_season, IDs = crime_2020_Robbery_season$gss_code)
+class(crime_2020_Robbery_season_sp)
+crime_2020_Robbery_season_nb<- poly2nb(crime_2020_Robbery_season_sp, row.names = crime_2020_Robbery_season$gss_code)
+class(crime_2020_Robbery_season_nb)
+
+str(crime_2020_Robbery_season_nb, list.len = 10)
+
+#create a matrix
+crime_2020_Robbery_season_matB<- nb2mat(crime_2020_Robbery_season_nb, style = 'B')
+sum(crime_2020_Robbery_season_matB[1,])
+#sum of column1. false=>0, true=>1
+#indicates that 5 values of true.
+
+crime_2020_Robbery_season_matW<- nb2mat(crime_2020_Robbery_season_nb,style = "W")
+sum(crime_2020_Robbery_season_matW[1,])
+#w=> allowing weighting. the sum would be 1.
+
+crime_2020_Robbery_season_listw<- nb2listw(crime_2020_Robbery_season_nb,style='B')
+class(crime_2020_Robbery_season_listw)
+#so this is nbs and weights so far.
+
+#create a quick Moran's I:
+moran(crime_2020_Robbery_season_sp$Autumn,
+      crime_2020_Robbery_season_listw,
+      n=length(crime_2020_Robbery_season_listw$neighbours),
+      S0=Szero(crime_2020_Robbery_season_listw))
+mc_model<- moran.mc(crime_2020_Robbery_season_sp$Autumn, crime_2020_Robbery_season_listw, nsim = 999)
+mc_model
+```
+
+```{r by crime type mapping}
+crime_2019_Robbery_season_nb<- poly2nb(crime_2019_Robbery_season_sp, row.names = crime_2019_Robbery_season_sp$gss_code)
+crime_2020_Robbery_season_nb<- poly2nb(crime_2020_Robbery_season_sp, row.names = crime_2020_Robbery_season_sp$gss_code)
+
+nb_weights_2019<- nb2listw(crime_2019_Robbery_season_nb, style = 'W')
+nb_weights_2020<- nb2listw(crime_2020_Robbery_season_nb, style = 'W')
+
+crime_2019_Robbery_season_local_moran<- localmoran(crime_2019_Robbery_season_sp$Summer, nb_weights_2019)
+crime_2019_Robbery_season_local_moran<- localmoran(crime_2019_Robbery_season_sp$Spring, nb_weights_2019)
+crime_2019_Robbery_season_local_moran<- localmoran(crime_2019_Robbery_season_sp$Autumn, nb_weights_2019)
+crime_2019_Robbery_season_local_moran<- localmoran(crime_2019_Robbery_season_sp$Winter, nb_weights_2019)
+
+crime_2020_Robbery_season_local_moran<- localmoran(crime_2020_Robbery_season_sp$Summer, nb_weights_2020)
+crime_2020_Robbery_season_local_moran<- localmoran(crime_2020_Robbery_season_sp$Spring, nb_weights_2020)
+crime_2020_Robbery_season_local_moran<- localmoran(crime_2020_Robbery_season_sp$Autumn, nb_weights_2020)
+crime_2020_Robbery_season_local_moran<- localmoran(crime_2020_Robbery_season_sp$Winter, nb_weights_2020)
+
+crime_2019_Robbery_season_sp$scale_summer<- scale(crime_2019_Robbery_season_sp$Summer)
+crime_2019_Robbery_season_sp$scale_spring<- scale(crime_2019_Robbery_season_sp$Spring)
+crime_2019_Robbery_season_sp$scale_autumn<- scale(crime_2019_Robbery_season_sp$Autumn)
+crime_2019_Robbery_season_sp$scale_winter<- scale(crime_2019_Robbery_season_sp$Winter)
+
+
+crime_2020_Robbery_season_sp$scale_spring<- scale(crime_2020_Robbery_season_sp$Spring)
+crime_2020_Robbery_season_sp$scale_summer<- scale(crime_2020_Robbery_season_sp$Summer)
+crime_2020_Robbery_season_sp$scale_autumn<- scale(crime_2020_Robbery_season_sp$Autumn)
+crime_2020_Robbery_season_sp$scale_winter<- scale(crime_2020_Robbery_season_sp$Winter)
+
+
+crime_2019_Robbery_season_sp$scale_summer_lag<- lag.listw(nb_weights_2019,crime_2019_Robbery_season_sp$scale_summer)
+crime_2019_Robbery_season_sp$scale_spring_lag<- lag.listw(nb_weights_2019,crime_2019_Robbery_season_sp$scale_spring)
+crime_2019_Robbery_season_sp$scale_autumn_lag<- lag.listw(nb_weights_2019,crime_2019_Robbery_season_sp$scale_autumn)
+crime_2019_Robbery_season_sp$scale_winter_lag<- lag.listw(nb_weights_2019,crime_2019_Robbery_season_sp$scale_winter)
+
+crime_2020_Robbery_season_sp$scale_spring_lag<- lag.listw(nb_weights_2020,crime_2020_Robbery_season_sp$scale_spring)
+crime_2020_Robbery_season_sp$scale_summer_lag<- lag.listw(nb_weights_2020,crime_2020_Robbery_season_sp$scale_summer)
+crime_2020_Robbery_season_sp$scale_autumn_lag<- lag.listw(nb_weights_2020,crime_2020_Robbery_season_sp$scale_autumn)
+crime_2020_Robbery_season_sp$scale_winter_lag<- lag.listw(nb_weights_2020,crime_2020_Robbery_season_sp$scale_winter)
+
+
+
+crime_2019_Robbery_season_sp$sig_autumn_2020 <- ifelse(crime_2020_Robbery_season_sp$scale_autumn > 0 &  crime_2020_Robbery_season_sp$scale_autumn_lag > 0 & crime_2020_Robbery_season_local_moran[,5] <= sig_level, "high-high",
+                                            ifelse(crime_2020_Robbery_season_sp$scale_autumn <= 0 & crime_2020_Robbery_season_sp$scale_autumn_lag <= 0 & crime_2020_Robbery_season_local_moran[,5] <= sig_level,  "low-low",
+                                                   ifelse(crime_2020_Robbery_season_sp$scale_autumn > 0 & crime_2020_Robbery_season_sp$scale_autumn_lag <= 0 & crime_2020_Robbery_season_local_moran[,5] <= sig_level,  "high-low",
+                                                          ifelse(crime_2020_Robbery_season_sp$scale_autumn <= 0 & crime_2020_Robbery_season_sp$scale_autumn_lag > 0 &  crime_2020_Robbery_season_local_moran[,5] <= sig_level,  "low-high",
+                                                                 ifelse(crime_2020_Robbery_season_local_moran[,5] > sig_level,  "not-significant", "not-significant")))))
+
+names(crime_2019_Robbery_season_sp)
+names(crime_2020_Robbery_season_sp)
+```
+
+```{r moran tmap}
+
+Hotspot_in_Summer_2019<- tm_shape(crime_2019_Robbery_season_sp)+
+  tm_fill(col = "sig_summer_2019",title = " ", legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Summer 2019",legend.outside = TRUE,title.size = 3)
+Hotspot_in_Spring_2019<- tm_shape(crime_2019_Robbery_season_sp)+
+  tm_fill(col = "sig_spring_2019",title = " ", legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Spring 2019",legend.outside = TRUE,title.size = 3)
+Hotspot_in_Autumn_2019<- tm_shape(crime_2019_Robbery_season_sp)+
+  tm_fill(col = "sig_autumn_2019",title = " ", legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Autumn 2019",legend.outside = TRUE)
+Hotspot_in_Winter_2019<- tm_shape(crime_2019_Robbery_season_sp)+
+  tm_fill(col = "sig_autumn_2019",title = " ", legend.show = TRUE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Winter 2019",legend.outside = TRUE)
+
+Hotspot_in_Summer_2020<- tm_shape(crime_2019_Robbery_season_sp) +
+  tm_fill(col = "sig_summer_2020",title = " ", legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Summer 2020",legend.outside = TRUE)
+Hotspot_in_Spring_2020<- tm_shape(crime_2019_Robbery_season_sp) +
+  tm_fill(col = "sig_spring_2020",title = " ")+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Spring 2020",legend.outside = FALSE)
+Hotspot_in_Autumn_2020<- tm_shape(crime_2019_Robbery_season_sp) +
+  tm_fill(col = "sig_autumn_2020",title = " ", legend.show = FALSE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Autumn 2020",legend.outside = TRUE)
+Hotspot_in_Winter_2020<- tm_shape(crime_2019_Robbery_season_sp)+
+  tm_fill(col = "sig_winter_2020",title = " ", legend.show = TRUE)+
+  tm_compass()+tm_scale_bar()+
+  tm_layout(main.title = "Winter 2020",legend.outside = TRUE)
+
+tmap_arrange(Hotspot_in_Summer_2019,
+             Hotspot_in_Autumn_2019,
+             Hotspot_in_Winter_2019,
+             Hotspot_in_Summer_2020,
+             Hotspot_in_Autumn_2020,
+             Hotspot_in_Winter_2020,
+             ncol = 3, nrow = 2,
+             widths = c(0.3,0.3,0.4))
+```
+
+```{r population}
+head(pop_est_2019)
+pop_est_2019<- read_csv(here("raw_data", "housing-density-borough.csv"))%>%
+  filter(`Year`==2019)%>%
+  filter(!str_detect(`Code`,"E12"))%>%
+  filter(!str_detect(`Code`,"E13"))%>%
+  select(c(`Code`, `Name`,`Population`,`Square_Kilometres`, `Population_per_square_kilometre`))%>%
+  merge(., london_bo, by.x = "Code", by.y = "gss_code")%>%
+  st_as_sf(.)
+
+pop_map<- tm_shape(pop_est_2019)+
+  tm_polygons("Population")+
+  tm_layout(main.title = "Population Estimation 2019",
+            legend.outside = TRUE)
+pop_den_map<- tm_shape(pop_est_2019)+
+  tm_polygons("Population_per_square_kilometre", title = "Population \n Density (/km2)")+
+  tm_layout(main.title = "Population Estimation 2019",
+            legend.outside = TRUE)
+tmap_arrange(pop_map,pop_den_map)
+
+# pop_est_2020<- read_csv(here("raw_data", "housing-density-borough.csv"))%>%
+#   filter(`Year`==2020)%>%
+#   filter(!str_detect(`Code`,"E12"))%>%
+#   filter(!str_detect(`Code`,"E13"))%>%
+#   select(c(`Code`, `Name`,`Population`,`Square_Kilometres`, `Population_per_square_kilometre`))
+head(pop_est_2019)
+head(london_bo)
+
+
+crime_data<- crime_data%>%
+  merge(., pop_est_2019, by.x = "Borough_Code", by.y = "Code")%>%
+  merge(., pop_est_2020, by.x = "Borough_Code", by.y = "Code")
+
+head(crime_data)
+# Population.x
+# Population_per_square_kilometre.x
+
+
+cor.test(crime_data$Population.x,crime_data$mean_2019, method ="spearman")
+cor.test(crime_data$Population_per_square_kilometre.x,crime_data$mean_2019, method ="spearman")
+cor.test(crime_data$Population.y,crime_data$mean_2020, method ="spearman")
+cor.test(crime_data$Population_per_square_kilometre.y,crime_data$mean_2020, method ="spearman")
+
+ggplot(crime_data, aes(x=Population_per_square_kilometre.x,y=mean_2019))+
+  geom_point()+
+  labs(title="Correlation of population density and crime number")+
+  geom_smooth(method="lm")+
+  theme(plot.title = element_text(size = 15, hjust = 0.5))+
+  stat_cor(method="pearson",label.x = 2000, label.y = 2000,size=5)
+
+ggplot(crime_data, aes(x=Population_per_square_kilometre.y,y=mean_2020))+
+  geom_point()+
+  labs(title="Correlation of population density and crime number")+
+  geom_smooth(method="lm")+
+  theme(plot.title = element_text(size = 15, hjust = 0.5))+
+  stat_cor(method="pearson",label.x = 2000, label.y = 1500,size=5)
+
+crime_2019_theft_season<- crime_2019_theft_season%>%
+  merge(., pop_est_2019, by.x = "Borough_Code", by.y = "Code")
+crime_2020_theft_season<- crime_2020_theft_season%>%
+  merge(., pop_est_2020, by.x = "Borough_Code", by.y = "Code")
+
+cor.test(crime_2019_theft_season$Population.x,crime_2019_theft_season$Summer, method ="spearman")
+cor.test(crime_2020_theft_season$Population.y,crime_2020_theft_season$Autumn, method ="spearman")
+
+crime_2019_burglary_season<- crime_2019_burglary_season%>%
+  merge(., pop_est_2019, by.x = "Borough_Code", by.y = "Code")
+crime_2020_burglary_season<- crime_2020_burglary_season%>%
+  merge(., pop_est_2020, by.x = "Borough_Code", by.y = "Code")
+cor.test(crime_2019_burglary_season$Population.x,crime_2019_burglary_season$Winter, method ="spearman")
+# cor.test(crime_2020_burglary_season$Population.y,crime_2020_burglary_season$Spring, method ="spearman")
+
+crime_2019_Vehicle_Offences_season<- crime_2019_Vehicle_Offences_season%>%
+  merge(., pop_est_2019, by.x = "Borough_Code", by.y = "Code")
+cor.test(crime_2019_Vehicle_Offences_season$Population.x,crime_2019_Vehicle_Offences_season$Winter, method ="spearman")
+
+
+crime_2019_Robbery_season<- crime_2019_Robbery_season%>%
+  merge(., pop_est_2019, by.x = "Borough_Code", by.y = "Code")
+cor.test(crime_2019_Robbery_season$Population.x,crime_2019_Robbery_season$Winter, method ="spearman")
+```
+
+
+
+
+
+
