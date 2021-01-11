@@ -18,8 +18,9 @@ When you save the notebook, an HTML file containing the code and output will be 
 The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
 
 ```{r install packages}
-install.packages("ggpubr")
+# install.packages("ggpubr")
 library(ggpubr)
+
 library(here)
 library(sf)
 library(tidyverse)
@@ -60,6 +61,7 @@ crime_2019_average<- crime_2019%>%
   select(c("Borough_Name","gss_code", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec","geom"))%>%
   st_as_sf(.)
 
+#get the seasonal data
 crime_2019_average$Winter<- (crime_2019_average$Jan+crime_2019_average$Dec+crime_2019_average$Feb)/3
 crime_2019_average$Spring<- (crime_2019_average$Mar+crime_2019_average$Apr+crime_2019_average$May)/3
 crime_2019_average$Summer<- (crime_2019_average$Jun+crime_2019_average$Jul+crime_2019_average$Aug)/3
@@ -67,7 +69,6 @@ crime_2019_average$Autumn<- (crime_2019_average$Sep+crime_2019_average$Oct+crime
 
 crime_2019_average<- crime_2019_average%>%
   select(c("gss_code","Borough_Name","Spring","Summer","Autumn","Winter","geom"))
-
 
 crime_2020<- crime%>%
   select(c("MajorText", "LookUp_BoroughName", "202001", "202002", "202003", "202004", "202005", "202006", "202007", "202008", "202009", "202010", "202011"))%>%
@@ -100,7 +101,7 @@ crime_2020_average<- crime_2019_average%>%
 class(crime_2020_average)
 ```
 
-```{r plotting}
+```{r case number plot + wilcox}
 
 crime_spring_2019<- tm_shape(crime_2019_average)+
   tm_fill("Spring",title = "Case Number", breaks = c(0,100,200,300,400,500,600,700))+
@@ -189,7 +190,7 @@ class(crime_2020)
 # tmap_arrange(jan_2020,nov_2020)
 ```
 
-```{r by month}
+```{r seasonal variation of each type}
 head(crime)
 head(crime_2020_average)
 head(crime_2019)
@@ -276,9 +277,11 @@ ggplot(crime_data_by_type_2020,aes(x=factor(season, levels = level), y=count, gr
         strip.text.x = element_text(size = 6),
         axis.text.x = element_text(size=10),
         axis.ticks = element_blank())
+
+#bar charts
 ```
 
-```{r by type}
+```{r frequency distribution + wilcox}
 head(crime_2019)
 unique(crime_2019$Major_Type)
 
@@ -420,7 +423,7 @@ wilcox.test(crime_2019_Robbery$count, crime_2020_Robbery$count)
 
 ```
 
-```{r by type map}
+```{r map by type}
 names(crime_2019_theft)
 crime_2019_theft_avg<- crime_2019_theft%>%
   group_by(Borough_Code)%>%
@@ -436,6 +439,7 @@ tm_shape(crime_2019_theft_avg)+
             legend.outside = TRUE, 
             legend.outside.position = c('right','bottom'),
             legend.title.size = 2)
+#
 ```
 
 ```{r global morans i}
@@ -450,21 +454,20 @@ class(crime_2020_average_nb)
 
 str(crime_2020_average_nb, list.len = 10)
 
-#create a matrix
+#matrix
 crime_2020_average_matB<- nb2mat(crime_2020_average_nb, style = 'B')
 sum(crime_2020_average_matB[1,])
-#sum of column1. false=>0, true=>1
 #indicates that 5 values of true.
 
 crime_2020_average_matW<- nb2mat(crime_2020_average_nb,style = "W")
 sum(crime_2020_average_matW[1,])
-#w=> allowing weighting. the sum would be 1.
+#w=> sum=1
 
 crime_2020_average_listw<- nb2listw(crime_2020_average_nb,style='B')
 class(crime_2020_average_listw)
-#so this is nbs and weights so far.
+#nb+weights
 
-#create a quick Moran's I:
+#Moran's I:
 moran(crime_2020_average_sp$Winter,
       crime_2020_average_listw,
       n=length(crime_2020_average_listw$neighbours),
@@ -485,18 +488,16 @@ class(crime_2019_average_nb)
 #create a matrix
 crime_2019_average_matB<- nb2mat(crime_2019_average_nb, style = 'B')
 sum(crime_2019_average_matB[1,])
-#sum of column1. false=>0, true=>1
-#indicates that 5 values of true.
 
 crime_2019_average_matW<- nb2mat(crime_2019_average_nb,style = "W")
 sum(crime_2019_average_matW[1,])
-#w=> allowing weighting. the sum would be 1.
+#w=> sum=1
 
 crime_2019_average_listw<- nb2listw(crime_2019_average_nb,style='B')
 class(crime_2019_average_listw)
-#so this is nbs and weights so far.
+#nb+weights
 
-#create a quick Moran's I:
+#Moran's I:
 moran(crime_2019_average_sp$Summer,
       crime_2019_average_listw,
       n=length(crime_2019_average_listw$neighbours),
@@ -508,15 +509,13 @@ mc_model
 ```{r local morans i}
 
 #local Moran's I:
-#make the nb first:
 crime_2019_average_nb<- poly2nb(crime_2019_average_sp, row.names = crime_2019_average_sp$gss_code)
 crime_2020_average_nb<- poly2nb(crime_2020_average_sp, row.names = crime_2020_average_sp$gss_code)
-#create the list weights object
-#but notice that need to standardisation:
+
 nb_weights_2019<- nb2listw(crime_2019_average_nb, style = 'W')
 nb_weights_2020<- nb2listw(crime_2020_average_nb, style = 'W')
 
-#use the local moran() function:
+#the local moran() function:
 crime_2019_average_local_moran<- localmoran(crime_2019_average_sp$Spring, nb_weights_2019)
 crime_2019_average_local_moran<- localmoran(crime_2019_average_sp$Summer, nb_weights_2019)
 crime_2019_average_local_moran<- localmoran(crime_2019_average_sp$Autumn, nb_weights_2019)
@@ -526,6 +525,7 @@ crime_2019_average_local_moran<- localmoran(crime_2020_average_sp$Spring, nb_wei
 crime_2020_average_local_moran<- localmoran(crime_2020_average_sp$Autumn, nb_weights_2020)
 crime_2020_average_local_moran<- localmoran(crime_2020_average_sp$Summer, nb_weights_2020)
 crime_2019_average_local_moran<- localmoran(crime_2020_average_sp$Winter, nb_weights_2020)
+
 #re-scale the variable:
 crime_2019_average_sp$scale_spring<- scale(crime_2019_average_sp$Spring)
 crime_2019_average_sp$scale_summer<- scale(crime_2019_average_sp$Summer)
@@ -536,6 +536,7 @@ crime_2020_average_sp$scale_spring<- scale(crime_2020_average_sp$Spring)
 crime_2020_average_sp$scale_autumn<- scale(crime_2020_average_sp$Autumn)
 crime_2020_average_sp$scale_summer<- scale(crime_2020_average_sp$Summer)
 crime_2020_average_sp$scale_winter<- scale(crime_2020_average_sp$Winter)
+
 #ceate a new column that carries information about the nbs
 #called spatial lag function:
 crime_2019_average_sp$scale_spring_lag<- lag.listw(nb_weights_2019,crime_2019_average_sp$scale_spring)
@@ -547,12 +548,13 @@ crime_2020_average_sp$scale_spring_lag<- lag.listw(nb_weights_2020,crime_2020_av
 crime_2020_average_sp$scale_autumn_lag<- lag.listw(nb_weights_2020,crime_2020_average_sp$scale_autumn)
 crime_2020_average_sp$scale_summer_lag<- lag.listw(nb_weights_2020,crime_2020_average_sp$scale_summer)
 crime_2020_average_sp$scale_winter_lag<- lag.listw(nb_weights_2020,crime_2020_average_sp$scale_winter)
+
 #convert to sf:
 crime_moran_value_2019<- st_as_sf(crime_2019_average_sp)
 crime_moran_value_2020<- st_as_sf(crime_2020_average_sp)
 
 #significance for the p value:
-sig_level<- 0.1
+sig_level<- 0.1 #0.1?
 
 crime_2019_average_sp$sig_autumn_2019 <- ifelse(crime_2019_average_sp$scale_autumn > 0 &  crime_2019_average_sp$scale_autumn_lag > 0 & crime_2019_average_local_moran[,5] <= sig_level, "high-high",
                                             ifelse(crime_2019_average_sp$scale_autumn <= 0 & crime_2019_average_sp$scale_autumn_lag <= 0 & crime_2019_average_local_moran[,5] <= sig_level,  "low-low",
@@ -604,9 +606,10 @@ tmap_arrange(Hotspot_in_Summer_2019,
              Hotspot_in_Autumn_2019,
              Hotspot_in_Summer_2020,
              Hotspot_in_Autumn_2020, ncol = 2)
+#replace keywords for different maps
 ```
 
-```{r by crime type 2019}
+```{r global morans i by type 2019}
 # view(crime_2019_Burglary)
 
 crime_2019_Robbery_season<- crime_2019_Robbery%>%
@@ -628,21 +631,19 @@ class(crime_2019_Robbery_season_nb)
 
 str(crime_2019_Robbery_season_nb, list.len = 10)
 
-#create a matrix
+#matrix
 crime_2019_Robbery_season_matB<- nb2mat(crime_2019_Robbery_season_nb, style = 'B')
 sum(crime_2019_Robbery_season_matB[1,])
-#sum of column1. false=>0, true=>1
-#indicates that 5 values of true.
+
 
 crime_2019_Robbery_season_matW<- nb2mat(crime_2019_Robbery_season_nb,style = "W")
 sum(crime_2019_Robbery_season_matW[1,])
-#w=> allowing weighting. the sum would be 1.
+#w=>sum=1
 
 crime_2019_Robbery_season_listw<- nb2listw(crime_2019_Robbery_season_nb,style='B')
 class(crime_2019_Robbery_season_listw)
-#so this is nbs and weights so far.
 
-#create a quick Moran's I:
+#Moran's I:
 moran(crime_2019_Robbery_season_sp$Autumn,
       crime_2019_Robbery_season_listw,
       n=length(crime_2019_Robbery_season_listw$neighbours),
@@ -652,7 +653,7 @@ mc_model
 
 ```
 
-```{r by crime type 2020}
+```{r global morans i by type 2020}
 crime_2020_Robbery_season<- crime_2020_Robbery%>%
   pivot_wider(., names_from = "month",values_from = count)%>%
   merge(., london_bo, by.x = "Borough_Code", by.y = "gss_code")%>%
@@ -672,21 +673,19 @@ class(crime_2020_Robbery_season_nb)
 
 str(crime_2020_Robbery_season_nb, list.len = 10)
 
-#create a matrix
 crime_2020_Robbery_season_matB<- nb2mat(crime_2020_Robbery_season_nb, style = 'B')
 sum(crime_2020_Robbery_season_matB[1,])
-#sum of column1. false=>0, true=>1
-#indicates that 5 values of true.
+
 
 crime_2020_Robbery_season_matW<- nb2mat(crime_2020_Robbery_season_nb,style = "W")
 sum(crime_2020_Robbery_season_matW[1,])
-#w=> allowing weighting. the sum would be 1.
+
 
 crime_2020_Robbery_season_listw<- nb2listw(crime_2020_Robbery_season_nb,style='B')
 class(crime_2020_Robbery_season_listw)
-#so this is nbs and weights so far.
 
-#create a quick Moran's I:
+
+#Moran's I:
 moran(crime_2020_Robbery_season_sp$Autumn,
       crime_2020_Robbery_season_listw,
       n=length(crime_2020_Robbery_season_listw$neighbours),
@@ -746,7 +745,7 @@ names(crime_2019_Robbery_season_sp)
 names(crime_2020_Robbery_season_sp)
 ```
 
-```{r moran tmap}
+```{r moran tmap by type}
 
 Hotspot_in_Summer_2019<- tm_shape(crime_2019_Robbery_season_sp)+
   tm_fill(col = "sig_summer_2019",title = " ", legend.show = FALSE)+
